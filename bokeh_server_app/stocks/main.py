@@ -52,6 +52,7 @@ origin_df1 = None
 origin_df2 = None
 pre_x_range_start_time = None
 pre_x_range_end_time = None
+# origin_df = None
 
 @lru_cache()
 def get_data(t1, t2):
@@ -59,8 +60,15 @@ def get_data(t1, t2):
     global origin_df2
     global pre_x_range_start_time
     global pre_x_range_end_time
+    # global origin_df
     origin_df1 = load_ticker(t1)
     origin_df2 = load_ticker(t2)
+
+    # origin_df = pd.concat([origin_df1, origin_df2], axis=1)
+    # origin_df['t1'] = origin_df[t1]
+    # origin_df['t2'] = origin_df[t2]
+    # origin_df['t1_returns'] = origin_df[t1 + '_returns']
+    # origin_df['t2_returns'] = origin_df[t2 + '_returns']
 
     # df1 = origin_df1[(origin_df1.index >= '2006-01-01') & (origin_df1.index < '2007-01-01')]
     # df2 = origin_df2[(origin_df2.index >= '2006-01-01') & (origin_df2.index < '2007-01-01')]
@@ -212,8 +220,6 @@ def update(selected=None):
     source.data = data
     source_static.data = data
 
-    update_stats(df, t1, t2)
-
     corr.title.text = '%s returns vs. %s returns' % (t1, t2)
     ts1.title.text, ts2.title.text = t1, t2
 
@@ -252,7 +258,28 @@ data_table = DataTable(source=source, columns=columns, width=900, auto_edit=True
 # layout = column(main_row, series)
 #curdoc().add_root(layout)
 
-line = column(row(ticker1, ticker2), row(ts1, ts2))
+t1, t2 = ticker1.value, ticker2.value
+origin_df1 = load_ticker(t1)
+origin_df2 = load_ticker(t2)
+origin_df = pd.concat([origin_df1, origin_df2], axis=1)
+origin_df['t1'] = origin_df[t1]
+origin_df['t2'] = origin_df[t2]
+origin_df['t1_returns'] = origin_df[t1 + '_returns']
+origin_df['t2_returns'] = origin_df[t2 + '_returns']
+
+from holoviews.operation.datashader import datashade
+import holoviews as hv
+renderer = hv.renderer('bokeh').instance(mode='server')
+ts_hv = hv.Curve(origin_df, kdims=['date'], vdims=['t1']).opts(height=500, width=1800)
+ts1_plot = datashade(ts_hv).opts(height=100, width=1200)
+# ts1_plot = ts_hv
+plot_map_rendered = renderer.get_plot(ts1_plot, curdoc())
+# curdoc().add_root(plot_map_rendered.state)
+
+update_stats(origin_df, t1, t2)
+
+line = column(row(ticker1, ticker2), column(plot_map_rendered.state, row(ts1, ts2)))
+# line = column(plot_map_rendered.state)
 line.name = 'line'
 curdoc().add_root(line)
 
