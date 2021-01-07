@@ -12,6 +12,7 @@ from bokeh.settings import settings
 from bokeh.embed.server import server_html_page_for_session
 import os
 
+
 app = Flask(__name__)
 
 from bokeh.client import pull_session

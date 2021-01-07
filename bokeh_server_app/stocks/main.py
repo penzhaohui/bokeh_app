@@ -22,6 +22,8 @@ from functools import lru_cache
 from os.path import dirname, join
 
 import pandas as pd
+import json
+import datetime
 
 from bokeh.io import curdoc
 from bokeh.layouts import column, row
@@ -29,6 +31,7 @@ from bokeh.models import ColumnDataSource, PreText, Select
 from bokeh.plotting import figure
 from bokeh.models import (Button, ColumnDataSource, CustomJS, DataTable,
                           NumberFormatter, RangeSlider, TableColumn,)
+from bokeh.events import Event, ButtonClick, PanStart, PanEnd, Pan
 
 DATA_DIR = join(dirname(__file__), 'daily')
 
@@ -45,17 +48,117 @@ def load_ticker(ticker):
     data = data.set_index('date')
     return pd.DataFrame({ticker: data.c, ticker+'_returns': data.c.diff()})
 
+origin_df1 = None
+origin_df2 = None
+pre_x_range_start_time = None
+pre_x_range_end_time = None
+
 @lru_cache()
 def get_data(t1, t2):
-    df1 = load_ticker(t1)
-    df2 = load_ticker(t2)
+    global origin_df1
+    global origin_df2
+    global pre_x_range_start_time
+    global pre_x_range_end_time
+    origin_df1 = load_ticker(t1)
+    origin_df2 = load_ticker(t2)
+
+    # df1 = origin_df1[(origin_df1.index >= '2006-01-01') & (origin_df1.index < '2007-01-01')]
+    # df2 = origin_df2[(origin_df2.index >= '2006-01-01') & (origin_df2.index < '2007-01-01')]
+    df1 = origin_df1
+    df2 = origin_df2
+    x_range_candidate_items = [origin_df1.index.min(), origin_df1.index.max(), origin_df2.index.min(), origin_df2.index.max()]
+    x_range_min = None
+    x_range_max = None
+    for item in x_range_candidate_items:
+        if x_range_min == None or item < x_range_min:
+            x_range_min = item
+
+        if x_range_max == None or item > x_range_max:
+            x_range_max = item
+
+    x_range_end = x_range_min + datetime.timedelta(days=365)
+    pre_x_range_start_time = x_range_min
+    pre_x_range_end_time = x_range_end
+    df1 = origin_df1[(origin_df1.index >= x_range_min) & (origin_df1.index < x_range_end)]
+    df2 = origin_df2[(origin_df2.index >= x_range_min) & (origin_df2.index < x_range_end)]
     data = pd.concat([df1, df2], axis=1)
-    data = data.dropna()
+    #data = data.dropna()
     data['t1'] = data[t1]
     data['t2'] = data[t2]
     data['t1_returns'] = data[t1+'_returns']
     data['t2_returns'] = data[t2+'_returns']
     return data
+
+def callback_plot_pan(event):
+    print("Fire pan event on plot object.")
+    # print('PanEvent.X = ' + event.x)
+    pass
+
+
+def callback_plot_panstart(event):
+    print("Fire pan start event on plot object.")
+    # pan_start_time = datetime.datetime.fromtimestamp(event.x / 1000).strftime('%Y-%m-%d %H:%M:%S')
+    # print('PanStartEvent.X = ' + str(event.x) + ", " + pan_start_time)
+
+
+def callback_plot_panend(event):
+    print("Fire pan end event on plot object.")
+    pan_end_time = datetime.datetime.fromtimestamp(event.x / 1000).strftime('%Y-%m-%d %H:%M:%S')
+    print('PanEndEvent.X = ' + str(event.x) + ", " + pan_end_time)
+    cur_plot = curdoc().get_model_by_id(event._model_id)
+    x_range_start = cur_plot.x_range.start
+    x_range_end = cur_plot.x_range.end
+    x_range_start_time = datetime.datetime.fromtimestamp(x_range_start / 1000 - 28800)
+    x_range_end_time = datetime.datetime.fromtimestamp(x_range_end / 1000 - 28800)
+    print('Plot.xrange.start_time = ' + x_range_start_time.strftime('%Y-%m-%d %H:%M:%S'))
+    print('Plot.xrange.end_time = ' + x_range_end_time.strftime('%Y-%m-%d %H:%M:%S'))
+
+    t1, t2 = ticker1.value, ticker2.value
+    global origin_df1
+    global origin_df2
+    global pre_x_range_start_time
+    global pre_x_range_end_time
+
+    print('Previous.xrange.start_time = ' + pre_x_range_start_time.strftime('%Y-%m-%d %H:%M:%S'))
+    print('Previous.xrange.end_time = ' + pre_x_range_end_time.strftime('%Y-%m-%d %H:%M:%S'))
+
+    if x_range_start_time < (pre_x_range_start_time - datetime.timedelta(days=1)):
+        print('Back')
+
+    if (pre_x_range_end_time + datetime.timedelta(days=1)) < x_range_end_time:
+        print('Forward')
+        df1 = origin_df1[(origin_df1.index >= pre_x_range_end_time) & (origin_df1.index < x_range_end_time)]
+        df2 = origin_df2[(origin_df2.index >= pre_x_range_end_time) & (origin_df2.index < x_range_end_time)]
+
+        pre_x_range_start_time = x_range_start_time
+        pre_x_range_end_time = x_range_end_time
+
+        new_df = pd.concat([df1, df2], axis=1)
+        # data = data.dropna()
+        new_df['t1'] = new_df[t1]
+        new_df['t2'] = new_df[t2]
+        new_df['t1_returns'] = new_df[t1 + '_returns']
+        new_df['t2_returns'] = new_df[t2 + '_returns']
+
+        if new_df.empty == True:
+            return
+        else:
+            print("Reload new data: %s rows" % new_df.size)
+
+        source.stream({
+            'date': new_df.index,
+            't1': new_df['t1'],
+            't2': new_df['t2'],
+            't1_returns': new_df['t1_returns'],
+            't2_returns': new_df['t2_returns']
+        })
+        source_static.stream({
+            'date': new_df.index,
+            't1': new_df['t1'],
+            't2': new_df['t2'],
+            't1_returns': new_df['t1_returns'],
+            't2_returns': new_df['t2_returns']
+        })
 
 # set up widgets
 
@@ -78,10 +181,18 @@ ts1 = figure(plot_width=900, plot_height=200, tools=tools, x_axis_type='datetime
 ts1.line('date', 't1', source=source_static)
 ts1.circle('date', 't1', size=1, source=source, color=None, selection_color="red")
 
+ts1.on_event(Pan, callback_plot_pan)
+ts1.on_event(PanStart, callback_plot_panstart)
+ts1.on_event(PanEnd, callback_plot_panend)
+
 ts2 = figure(plot_width=900, plot_height=200, tools=tools, x_axis_type='datetime', active_drag="xbox_select")
 ts2.x_range = ts1.x_range
 ts2.line('date', 't2', source=source_static)
 ts2.circle('date', 't2', size=1, source=source, color=None, selection_color="green")
+
+ts2.on_event(Pan, callback_plot_pan)
+ts2.on_event(PanStart, callback_plot_panstart)
+ts2.on_event(PanEnd, callback_plot_panend)
 
 # set up callbacks
 
@@ -140,7 +251,6 @@ data_table = DataTable(source=source, columns=columns, width=900, auto_edit=True
 # series = column(ts1, ts2, data_table, button)
 # layout = column(main_row, series)
 #curdoc().add_root(layout)
-
 
 line = column(row(ticker1, ticker2), row(ts1, ts2))
 line.name = 'line'
