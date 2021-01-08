@@ -270,8 +270,9 @@ origin_df['t2_returns'] = origin_df[t2 + '_returns']
 from holoviews.operation.datashader import datashade
 import holoviews as hv
 renderer = hv.renderer('bokeh').instance(mode='server')
-ts_hv = hv.Curve(origin_df, kdims=['date'], vdims=['t1']).opts(height=500, width=1800)
-ts1_plot = datashade(ts_hv).opts(height=100, width=1200)
+ts_hv1 = hv.Curve(origin_df, kdims=['date'], vdims=['t1']).opts(height=500, width=1800)
+ts_hv2 = hv.Curve(origin_df, kdims=['date'], vdims=['t2']).opts(height=500, width=1800)
+ts1_plot = datashade(ts_hv1 * ts_hv2).opts(height=200, width=900)
 # ts1_plot = ts_hv
 plot_map_rendered = renderer.get_plot(ts1_plot, curdoc())
 # curdoc().add_root(plot_map_rendered.state)
